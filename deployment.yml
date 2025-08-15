@@ -1,17 +1,5 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: todo-app
-  namespace: default
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: todo-app
   template:
-    metadata:
-      labels:
-        app: todo-app
     spec:
       serviceAccountName: todo-sa
       containers:
