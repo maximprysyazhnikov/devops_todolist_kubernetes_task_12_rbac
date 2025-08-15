@@ -1,40 +1,63 @@
-INSTRUCTION.md
-# How to validate RBAC (list secrets via curl from the Pod)
+# RBAC Validation Instructions
 
-## 0) Pre-req
-- kind cluster from `cluster.yml`
-- Manifests applied: `./bootstrap.sh`
+Ці інструкції показують, як перевірити, що ServiceAccount `todo-sa` має доступ до list secrets у namespace `default`.
 
-## 1) Get the pod name
+---
+
+## 1. Передумови
+- Піднятий кластер kind:
 ```bash
-kubectl get pods -n default -l app=todo-app
+kind create cluster --name todo-cluster --config cluster.yml
+Застосовані маніфести:
 
-2) Exec into the pod (install curl if needed)
-# якщо curl немає в образі:
-kubectl exec -n default -it <POD_NAME> -- sh -lc 'apt-get update && apt-get install -y curl || (apk add --no-cache curl || yum install -y curl || true)'
+bash
+Копировать
+Редактировать
+kubectl apply -f security/rbac.yml
+kubectl apply -f deployment.yml
+2. Перевірити, що Pod працює
+bash
+Копировать
+Редактировать
+kubectl get pods -l app=todo-app
+Статус має бути Running.
 
-3) Call K8s API with SA token
-kubectl exec -n default -it <POD_NAME> -- sh -lc '
+3. Виконати curl з Pod-а
+Примітка: На Windows через PowerShell можуть бути проблеми з лапками та змінними. Надійний варіант — передати скрипт у Pod через base64.
+
+Кроки:
+Отримати ім'я Pod-а:
+
+bash
+Копировать
+Редактировать
+POD=$(kubectl get pods -l app=todo-app -o jsonpath="{.items[0].metadata.name}")
+Виконати скрипт у Pod:
+
+bash
+Копировать
+Редактировать
+SCRIPT=$(cat <<'EOF'
 API="https://kubernetes.default.svc"
 TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
 CACERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-NAMESPACE="$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)"
+NS="$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)"
+
+apk add --no-cache jq >/dev/null 2>&1 || true
+
 curl --silent --show-error --cacert "$CACERT" \
   -H "Authorization: Bearer $TOKEN" \
-  "$API/api/v1/namespaces/$NAMESPACE/secrets?limit=500"
-'
+  "$API/api/v1/namespaces/$NS/secrets?limit=500" \
+  | jq '{kind, count:(.items|length), items:(.items|map(.metadata.name))}'
+EOF
+)
 
+echo "$SCRIPT" | base64 | kubectl exec -i $POD -- sh -c "base64 -d >/tmp/list.sh && sh /tmp/list.sh"
+4. Очікуваний результат
+JSON з:
 
-Очікувано: JSON з "kind": "SecretList" і масивом "items".
+"kind": "SecretList"
 
-4) Screenshot
+"count": <число>"
 
-Зроби скрін терміналу з результатом curl і прикріпи до PR.
-
-Notes
-
-Role дозволяє list (і get) секрети в default.
-
-RoleBinding прив’язує роль до todo-sa.
-
-Deployment використовує serviceAccountName: todo-sa.
+"items": [...] (список секретів або порожній масив, якщо секретів немає)
